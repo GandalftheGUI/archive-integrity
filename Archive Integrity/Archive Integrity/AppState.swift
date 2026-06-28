@@ -78,6 +78,35 @@ final class AppState {
         save()
     }
 
+    func rebuildManifest(volumeID: UUID) {
+        guard let idx = volumes.firstIndex(where: { $0.id == volumeID }) else { return }
+        try? FileManager.default.removeItem(at: volumes[idx].manifestURL)
+        volumes[idx].lastDeepCheck = nil
+        volumes[idx].lastQuickCheck = nil
+        save()
+    }
+
+    func removeFromManifest(volumeID: UUID, paths: Set<String>) {
+        guard let idx = volumes.firstIndex(where: { $0.id == volumeID }) else { return }
+        let volume = volumes[idx]
+        guard var manifest = try? Manifest(url: volume.manifestURL) else { return }
+        try? manifest.remove(paths)
+        // Strip resolved paths from recorded issues so the UI updates immediately.
+        if var record = volumes[idx].lastDeepCheck {
+            record.issues = record.issues.filter { issue in
+                !paths.contains(where: { issue.contains($0) })
+            }
+            volumes[idx].lastDeepCheck = record
+        }
+        if var record = volumes[idx].lastQuickCheck {
+            record.issues = record.issues.filter { issue in
+                !paths.contains(where: { issue.contains($0) })
+            }
+            volumes[idx].lastQuickCheck = record
+        }
+        save()
+    }
+
     // MARK: - Mount events
 
     func volumeMounted(atPath mountPath: String, uuid: String?) {
@@ -129,18 +158,16 @@ final class AppState {
 
         do {
             var manifest = try Manifest(url: volume.manifestURL)
-            let verifier = Verifier()
+            let verifier = Verifier(concurrency: volume.concurrency)
 
             switch mode {
             case .quick:
                 let result = try verifier.quickCheck(root: volume.archiveURL, manifest: manifest)
-                let issues = result.isClean ? [] :
-                    ["\(result.missingFiles) file(s) missing from manifest count"]
+                let issues = result.missing.map { "MISSING: \($0)" }
                 volumes[idx].lastQuickCheck = .init(
                     date: Date(), outcome: result.isClean ? .clean : .failed,
                     fileCount: result.liveCount, issues: issues)
                 if !result.isClean {
-                    FailureMarker.write(to: volume.archiveURL, volumeName: volume.displayName)
                     await NotificationManager.shared.postFailure(
                         volumeName: volume.displayName, issues: issues)
                 }
@@ -163,7 +190,7 @@ final class AppState {
                 }
 
                 var issues: [String] = []
-                issues += result.corrupted.map { "CORRUPTED: \($0.path)" }
+                issues += result.corrupted.map { "MODIFIED: \($0.path)" }
                 issues += result.missing.map  { "MISSING: \($0)" }
 
                 // Total live files — valid regardless of whether manifest write succeeds.
@@ -178,9 +205,7 @@ final class AppState {
                             issues.append("ERR: manifest write failed – \(error.localizedDescription)")
                         }
                     }
-                    FailureMarker.clear(from: volume.archiveURL)
                 } else {
-                    FailureMarker.write(to: volume.archiveURL, volumeName: volume.displayName)
                     await NotificationManager.shared.postFailure(
                         volumeName: volume.displayName, issues: issues)
                 }

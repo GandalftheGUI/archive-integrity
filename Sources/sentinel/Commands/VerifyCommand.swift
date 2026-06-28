@@ -52,13 +52,17 @@ struct VerifyCommand: AsyncParsableCommand {
         print("  Live:     \(result.liveCount) files")
         print()
 
-        if result.missingFiles > 0 {
+        for path in result.missing { print("MISSING   \(path)") }
+        for path in result.new     { print("NEW       \(path)") }
+
+        if !result.missing.isEmpty {
+            if !result.new.isEmpty { print() }
             print("FAIL — \(result.missingFiles) file(s) missing.")
             throw ExitCode.failure
-        } else if result.newFiles > 0 {
+        } else if !result.new.isEmpty {
             print("OK — \(result.newFiles) new file(s) not yet in manifest.")
         } else {
-            print("OK — counts match.")
+            print("OK — all files present.")
         }
     }
 

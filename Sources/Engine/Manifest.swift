@@ -4,10 +4,10 @@ public enum ManifestError: Error, Sendable {
     case appendFailed(URL)
 }
 
-/// An append-only map of archive-relative paths to their BLAKE3 hex digests.
+/// A map of archive-relative paths to their BLAKE3 hex digests.
 ///
 /// Format is b3sum-compatible: `<64-hex>  ./relative/path\n`
-/// Existing entries are never rewritten; new entries are appended.
+/// The CLI only ever appends; the app may also remove entries via `remove(_:)`.
 public struct Manifest: Sendable {
     public let url: URL
     public private(set) var entries: [String: String]  // normalized path -> hex hash
@@ -43,6 +43,17 @@ public struct Manifest: Sendable {
 
     public func hash(for path: String) -> String? {
         entries[path]
+    }
+
+    /// Removes `paths` from the manifest, atomically rewriting the file.
+    public mutating func remove(_ paths: Set<String>) throws {
+        guard !paths.isEmpty else { return }
+        for path in paths { entries.removeValue(forKey: path) }
+        var output = ""
+        for (path, hash) in entries.sorted(by: { $0.key < $1.key }) {
+            output += "\(hash)  \(path)\n"
+        }
+        try output.data(using: .utf8)!.write(to: url, options: .atomic)
     }
 
     /// Appends `newEntries` to the manifest file and updates the in-memory map.

@@ -87,6 +87,18 @@ struct VolumeDetailView: View {
 
     private var isChecking: Bool { appState.activeChecks[volume.id] != nil }
 
+    private var concurrencyBinding: Binding<Int> {
+        Binding(
+            get: { appState.volumes.first(where: { $0.id == volume.id })?.concurrency ?? 1 },
+            set: { newValue in
+                if let idx = appState.volumes.firstIndex(where: { $0.id == volume.id }) {
+                    appState.volumes[idx].concurrency = newValue
+                    appState.save()
+                }
+            }
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -103,6 +115,27 @@ struct VolumeDetailView: View {
                     .padding(4)
                 }
 
+                // Per-drive check settings
+                GroupBox("Check Settings") {
+                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Concurrency")
+                                .foregroundStyle(.secondary)
+                                .gridColumnAlignment(.trailing)
+                            HStack(spacing: 8) {
+                                Stepper(value: concurrencyBinding, in: 1...16) {
+                                    Text("\(volume.concurrency) file\(volume.concurrency == 1 ? "" : "s") at a time")
+                                }
+                                Text(volume.concurrency == 1 ? "Sequential — safe for HDDs" : "Parallel — best for SSDs")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .gridColumnAlignment(.leading)
+                        }
+                    }
+                    .padding(4)
+                }
+
                 // Check history
                 GroupBox("Last Checks") {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
@@ -110,6 +143,18 @@ struct VolumeDetailView: View {
                         checkRow(label: "Deep",  record: volume.lastDeepCheck)
                     }
                     .padding(4)
+                }
+
+                // Issues from last quick check (missing files)
+                if let issues = volume.lastQuickCheck?.issues, !issues.isEmpty {
+                    GroupBox("Quick Check Issues") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(issues, id: \.self) { issue in
+                                issueRow(issue: issue, volumeID: volume.id)
+                            }
+                        }
+                        .padding(4)
+                    }
                 }
 
                 // Issues / info from last deep check
@@ -127,9 +172,7 @@ struct VolumeDetailView: View {
                         GroupBox("Issues") {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(problems, id: \.self) { issue in
-                                    Text(issue)
-                                        .font(.caption)
-                                        .foregroundStyle(issue.hasPrefix("CORRUPTED") ? .red : .orange)
+                                    issueRow(issue: issue, volumeID: volume.id)
                                 }
                             }
                             .padding(4)
@@ -160,6 +203,29 @@ struct VolumeDetailView: View {
 
             }
             .padding(16)
+        }
+    }
+
+    @ViewBuilder
+    private func issueRow(issue: String, volumeID: UUID) -> some View {
+        let isModified = issue.hasPrefix("MODIFIED")
+        let isMissing  = issue.hasPrefix("MISSING")
+        let path: String? = {
+            if isModified, let r = issue.range(of: "MODIFIED: ") { return String(issue[r.upperBound...]) }
+            if isMissing,  let r = issue.range(of: "MISSING: ")  { return String(issue[r.upperBound...]) }
+            return nil
+        }()
+        let type: IssueFixButton.IssueType? = isModified ? .modified : isMissing ? .missing : nil
+
+        HStack(alignment: .top, spacing: 8) {
+            Text(issue)
+                .font(.caption)
+                .foregroundStyle(isModified ? .red : .orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let path, let type {
+                IssueFixButton(type: type, path: path, volumeID: volumeID)
+            }
         }
     }
 
@@ -211,5 +277,86 @@ struct VolumeDetailView: View {
         case .failed:    Text("Failed").foregroundStyle(.red)
         case .uncovered: Text("New files").foregroundStyle(.orange)
         }
+    }
+}
+
+// MARK: - Fix popover
+
+private struct IssueFixButton: View {
+    enum IssueType {
+        case modified, missing
+
+        var headline: String {
+            switch self {
+            case .modified: return "This file's content has changed since it was last verified."
+            case .missing:  return "This file is no longer on disk."
+            }
+        }
+
+        var intentionalLabel: String {
+            switch self {
+            case .modified: return "If the change was intentional"
+            case .missing:  return "If it was intentionally deleted"
+            }
+        }
+
+        var unintentionalAdvice: String {
+            switch self {
+            case .modified: return "If the change was not intentional, restore the original from a backup, then run a deep check to verify it."
+            case .missing:  return "If it was accidentally deleted, restore the file from a backup, then run a deep check to verify it."
+            }
+        }
+    }
+
+    let type: IssueType
+    let path: String
+    let volumeID: UUID
+    @Environment(AppState.self) var appState
+    @State private var showPopover = false
+    @State private var showRebuildWarning = false
+
+    var body: some View {
+        Button("Fix…") { showPopover = true }
+            .font(.caption)
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .popover(isPresented: $showPopover, arrowEdge: .trailing) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(type.headline)
+                        .font(.callout)
+                        .fontWeight(.medium)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(type.intentionalLabel + ":")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Rebuild manifest…") {
+                            showPopover = false
+                            showRebuildWarning = true
+                        }
+                        .foregroundStyle(.red)
+                    }
+
+                    Divider()
+
+                    Text(type.unintentionalAdvice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(16)
+                .frame(width: 280)
+            }
+            .alert("Rebuild manifest?", isPresented: $showRebuildWarning) {
+                Button("Rebuild", role: .destructive) {
+                    appState.rebuildManifest(volumeID: volumeID)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This deletes the current manifest and re-baselines from the current state of your files — including any that may be modified or corrupted. Only do this if you are certain your archive is intact.\n\nRun a deep check after rebuilding to create the new baseline.")
+            }
     }
 }

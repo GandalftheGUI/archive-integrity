@@ -7,25 +7,37 @@ public enum VerifierError: Error, Sendable {
 public struct Verifier: Sendable {
     public var throttle: Duration?
     public var chunkSize: Int
+    /// Number of files hashed concurrently. Default 1 (safe for HDDs).
+    /// Set to 4–8 for SSDs to saturate I/O queue depth.
+    public var concurrency: Int
 
-    public init(throttle: Duration? = nil, chunkSize: Int = FileHasher.defaultChunkSize) {
+    public init(
+        throttle: Duration? = nil,
+        chunkSize: Int = FileHasher.defaultChunkSize,
+        concurrency: Int = 1
+    ) {
         self.throttle = throttle
         self.chunkSize = chunkSize
+        self.concurrency = max(1, concurrency)
     }
 
     // MARK: - Quick check
 
-    /// Counts live files vs manifest entries. Seconds. No hashing.
     public func quickCheck(root: URL, manifest: Manifest) throws -> QuickCheckResult {
         let live = try TreeWalker.walk(root: root)
-        return QuickCheckResult(manifestCount: manifest.count, liveCount: live.count)
+        let liveSet = Set(live)
+        let manifestSet = Set(manifest.entries.keys)
+        return QuickCheckResult(
+            manifestCount: manifest.count,
+            liveCount: live.count,
+            missing: manifestSet.subtracting(liveSet).sorted(),
+            new: liveSet.subtracting(manifestSet).sorted()
+        )
     }
 
     // MARK: - Deep check
 
-    /// Hashes every baselined file, diffs result, collects new files.
-    /// All-files-fail detection: if every manifest entry fails, the caller should
-    /// treat that as a likely path/normalization mismatch rather than mass corruption.
+    /// Hashes every baselined file and collects new files, up to `concurrency` files at once.
     public func deepCheck(
         root: URL,
         manifest: Manifest,
@@ -33,54 +45,78 @@ public struct Verifier: Sendable {
     ) async throws -> DeepCheckResult {
         let live = try TreeWalker.walk(root: root)
         let rootURL = root.resolvingSymlinksInPath()
-        var result = DeepCheckResult()
 
         let newPaths = live.filter { manifest.entries[$0] == nil }
         let total = manifest.count + newPaths.count
-        var index = 0
 
-        // Verify every file in the manifest
-        for (path, expected) in manifest.entries {
-            index += 1
-            try Task.checkCancellation()
-            onProgress?(.hashing(path: path, index: index, total: total))
+        // Flatten all work into a single list so the pool can drain it uniformly.
+        enum WorkItem: Sendable {
+            case verify(path: String, expected: String)
+            case hashNew(path: String)
+        }
+        var work: [WorkItem] = []
+        work.reserveCapacity(total)
+        for (path, expected) in manifest.entries { work.append(.verify(path: path, expected: expected)) }
+        for path in newPaths                      { work.append(.hashNew(path: path)) }
 
-            let fileURL = fileURL(for: path, root: rootURL)
-            guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                result.missing.append(path)
-                onProgress?(.result(path: path, verdict: .missing))
-                continue
-            }
-
-            do {
-                let actual = try await FileHasher.hash(
-                    url: fileURL, chunkSize: chunkSize, throttle: throttle)
-                if actual == expected {
-                    result.ok.append(path)
-                    onProgress?(.result(path: path, verdict: .ok))
-                } else {
-                    result.corrupted.append(
-                        CorruptedFile(path: path, expected: expected, actual: actual))
-                    onProgress?(.result(path: path, verdict: .corrupted))
+        enum FileResult: Sendable {
+            case ok(String)
+            case corrupted(String, expected: String, actual: String)
+            case missing(String)
+            case new(String, hash: String)
+            var path: String {
+                switch self {
+                case .ok(let p), .corrupted(let p, _, _), .missing(let p), .new(let p, _): return p
                 }
-            } catch {
-                result.missing.append(path)
-                onProgress?(.result(path: path, verdict: .missing))
             }
         }
 
-        // Hash new files so they're ready to append after a clean run
-        for path in newPaths {
-            index += 1
-            try Task.checkCancellation()
-            onProgress?(.hashing(path: path, index: index, total: total))
+        var result = DeepCheckResult()
+        var completed = 0
 
-            let fileURL = fileURL(for: path, root: rootURL)
-            if let hash = try? await FileHasher.hash(
-                url: fileURL, chunkSize: chunkSize, throttle: throttle)
-            {
-                result.new[path] = hash
-                onProgress?(.result(path: path, verdict: .new))
+        try await withThrowingTaskGroup(of: FileResult.self) { group in
+            var iter = work.makeIterator()
+
+            func submit() {
+                guard let item = iter.next() else { return }
+                group.addTask { [self] in
+                    try Task.checkCancellation()
+                    switch item {
+                    case .verify(let path, let expected):
+                        let url = fileURL(for: path, root: rootURL)
+                        guard FileManager.default.fileExists(atPath: url.path) else {
+                            return .missing(path)
+                        }
+                        do {
+                            let actual = try await FileHasher.hash(url: url, chunkSize: chunkSize, throttle: throttle)
+                            return actual == expected ? .ok(path) : .corrupted(path, expected: expected, actual: actual)
+                        } catch {
+                            return .missing(path)
+                        }
+                    case .hashNew(let path):
+                        let url = fileURL(for: path, root: rootURL)
+                        guard let hash = try? await FileHasher.hash(url: url, chunkSize: chunkSize, throttle: throttle) else {
+                            return .missing(path)
+                        }
+                        return .new(path, hash: hash)
+                    }
+                }
+            }
+
+            // Seed the pool.
+            for _ in 0..<min(concurrency, work.count) { submit() }
+
+            // Drain: collect a result, refill one slot, repeat.
+            while let fileResult = try await group.next() {
+                completed += 1
+                onProgress?(.hashing(path: fileResult.path, index: completed, total: total))
+                switch fileResult {
+                case .ok(let p):                         result.ok.append(p)
+                case .corrupted(let p, let e, let a):    result.corrupted.append(CorruptedFile(path: p, expected: e, actual: a))
+                case .missing(let p):                    result.missing.append(p)
+                case .new(let p, let h):                 result.new[p] = h
+                }
+                submit()
             }
         }
 
@@ -89,8 +125,6 @@ public struct Verifier: Sendable {
 
     // MARK: - Baseline
 
-    /// Hashes all files under `root` and writes the initial manifest.
-    /// Errors if the manifest file already exists (append-only invariant).
     public func baseline(
         root: URL,
         manifestURL: URL,
@@ -103,18 +137,34 @@ public struct Verifier: Sendable {
 
         let paths = try TreeWalker.walk(root: root)
         let rootURL = root.resolvingSymlinksInPath()
-        var newEntries: [String: String] = [:]
         let total = paths.count
+        var newEntries: [String: String] = [:]
 
-        for (index, path) in paths.enumerated() {
-            try Task.checkCancellation()
-            onProgress?(.hashing(path: path, index: index + 1, total: total))
-            let hash = try await FileHasher.hash(
-                url: fileURL(for: path, root: rootURL),
-                chunkSize: chunkSize,
-                throttle: throttle
-            )
-            newEntries[path] = hash
+        try await withThrowingTaskGroup(of: (String, String).self) { group in
+            var iter = paths.makeIterator()
+
+            func submit() {
+                guard let path = iter.next() else { return }
+                group.addTask { [self] in
+                    try Task.checkCancellation()
+                    let hash = try await FileHasher.hash(
+                        url: fileURL(for: path, root: rootURL),
+                        chunkSize: chunkSize,
+                        throttle: throttle
+                    )
+                    return (path, hash)
+                }
+            }
+
+            for _ in 0..<min(concurrency, paths.count) { submit() }
+
+            var completed = 0
+            while let (path, hash) = try await group.next() {
+                completed += 1
+                onProgress?(.hashing(path: path, index: completed, total: total))
+                newEntries[path] = hash
+                submit()
+            }
         }
 
         try manifest.append(newEntries)
@@ -124,9 +174,7 @@ public struct Verifier: Sendable {
     // MARK: - Helpers
 
     private func fileURL(for manifestPath: String, root: URL) -> URL {
-        let relative = manifestPath.hasPrefix("./")
-            ? String(manifestPath.dropFirst(2))
-            : manifestPath
+        let relative = manifestPath.hasPrefix("./") ? String(manifestPath.dropFirst(2)) : manifestPath
         return root.appendingPathComponent(relative)
     }
 }

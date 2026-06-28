@@ -7,10 +7,12 @@ public struct CorruptedFile: Sendable {
 public struct QuickCheckResult: Sendable {
     public let manifestCount: Int
     public let liveCount: Int
+    public let missing: [String]   // in manifest but not on disk
+    public let new: [String]       // on disk but not in manifest
 
-    public var isClean: Bool { liveCount >= manifestCount }
-    public var newFiles: Int { max(0, liveCount - manifestCount) }
-    public var missingFiles: Int { max(0, manifestCount - liveCount) }
+    public var isClean: Bool { missing.isEmpty }
+    public var missingFiles: Int { missing.count }
+    public var newFiles: Int { new.count }
 }
 
 public struct DeepCheckResult: Sendable {

@@ -7,7 +7,7 @@ public enum HashError: Error, Sendable {
 }
 
 public struct FileHasher {
-    public static let defaultChunkSize = 1024 * 1024  // 1 MB
+    public static let defaultChunkSize = 8 * 1024 * 1024  // 8 MB
 
     /// Streams `url` through BLAKE3 in `chunkSize` chunks, checking for cancellation
     /// and optionally sleeping between chunks to throttle I/O.

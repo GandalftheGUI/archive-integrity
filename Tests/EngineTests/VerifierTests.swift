@@ -90,7 +90,7 @@ import Foundation
         #expect(result.liveCount == 3)
     }
 
-    @Test func quickCheckDetectsMissingByCount() async throws {
+    @Test func quickCheckDetectsMissingByPath() async throws {
         let (root, manifestURL) = try makeArchive(fileCount: 3)
         defer { cleanup(root, manifestURL) }
 
@@ -101,7 +101,8 @@ import Foundation
 
         let result = try verifier.quickCheck(root: root, manifest: manifest)
         #expect(!result.isClean)
-        #expect(result.missingFiles == 1)
+        #expect(result.missing == ["./file-2.bin"])
+        #expect(result.new.isEmpty)
     }
 
     // MARK: - Append gate
