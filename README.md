@@ -12,7 +12,13 @@ Archive Integrity hashes every file in your archive using BLAKE3 and records the
 
 ## Who this is for
 
-Anyone maintaining files on drives that sit unplugged for months at a time and needs to know they're intact when they come back to them: photographers, videographers, musicians, researchers, developers, or anyone keeping records that must remain unaltered over time.
+Anyone who manages a data archive that is static or append-only and needs confidence that nothing has silently drifted or corrupted over time. For example:
+
+- Photographers and videographers with large media archives
+- Musicians and audio engineers archiving project files and masters
+- Researchers who need to know a dataset hasn't changed since it was collected
+- Developers archiving source code, builds, or release artifacts
+- Anyone keeping records that must remain unaltered over time
 
 ## Who this is not for
 
