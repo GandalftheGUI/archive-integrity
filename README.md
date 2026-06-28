@@ -1,20 +1,18 @@
 # Archive Integrity
 
-A macOS tool for detecting silent data loss on cold photo archives — bit rot, accidental deletions, and undetected corruption.
+A macOS tool for detecting silent data loss on cold storage archives — bit rot, accidental deletions, and undetected corruption.
 
 ## Why I built this
 
-I keep my photo archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. Every few months I plug it in and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted — and you don't find out until years later when you actually need the file.
+I keep my archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. Every few months I plug it in and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted. You don't find out until years later when you actually need the file.
 
 Most backup tools tell you when a file was added or removed. Almost none tell you when a file's content has changed without you asking it to. That's the gap this fills.
 
-Archive Integrity hashes every file in your archive using BLAKE3 and records the results in a manifest. On future checks it re-hashes and compares. If anything changed — even a single flipped bit — it tells you.
+Archive Integrity hashes every file in your archive using BLAKE3 and records the results in a manifest. On future checks it re-hashes and compares. If anything changed, even a single flipped bit, it tells you.
 
 ## Who this is for
 
-- Photographers, archivists, or anyone maintaining a long-term cold storage archive
-- People who store files on external drives that sit unplugged most of the time
-- Anyone who wants cryptographic proof that their files are byte-for-byte identical to what they originally stored
+Anyone maintaining files on drives that sit unplugged for months at a time and needs to know they're intact when they come back to them: photographers, videographers, musicians, researchers, developers, or anyone keeping records that must remain unaltered over time.
 
 ## Who this is not for
 
@@ -38,7 +36,7 @@ The format is b3sum-compatible, so you can verify manifests independently with t
 
 **Deep check** — hashes every file and compares against the stored hash. Detects bit rot and silent corruption. Takes minutes to hours depending on archive size and drive speed. Runs automatically on a configurable schedule.
 
-On the first deep check, all files are treated as new and added to the manifest — no separate setup step needed.
+On the first deep check, all files are treated as new and added to the manifest. No separate setup step needed.
 
 ## Project structure
 
@@ -87,7 +85,7 @@ sentinel verify --throttle-ms 5 /Volumes/MyArchive
 
 ## Performance
 
-Verification is I/O-bound — BLAKE3 processes data at ~10 GB/s on Apple Silicon, faster than any drive can supply it. Throughput is limited entirely by the drive:
+Verification is I/O-bound. BLAKE3 processes data at ~10 GB/s on Apple Silicon, faster than any drive can supply it. Throughput is limited entirely by the drive:
 
 | Drive type | Typical throughput | Rough time for 3.75 TB |
 |---|---|---|
@@ -95,7 +93,7 @@ Verification is I/O-bound — BLAKE3 processes data at ~10 GB/s on Apple Silicon
 | USB 3.0 SSD | ~450 MB/s | ~2.5 hours |
 | Internal NVMe (Apple Silicon) | ~5 GB/s | ~12 minutes |
 
-Concurrency (parallel file reads) helps on SSDs and NVMe by keeping the drive's I/O queue saturated. It can hurt on HDDs by forcing unnecessary seeks — leave it at 1 for spinning drives.
+Concurrency (parallel file reads) helps on SSDs and NVMe by keeping the drive's I/O queue saturated. It can hurt on HDDs by forcing unnecessary seeks, so leave it at 1 for spinning drives.
 
 ## Requirements
 
