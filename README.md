@@ -4,7 +4,7 @@ A macOS tool for detecting silent data loss on cold storage archives — bit rot
 
 ## Why I built this
 
-I keep my archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. Every few months I plug it in and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted. You don't find out until years later when you actually need the file.
+I keep my archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. I plug it in regularly and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted. You don't find out until years later when you actually need the file.
 
 Most backup tools tell you when a file was added or removed. Almost none tell you when a file's content has changed without you asking it to. That's the gap this fills.
 
@@ -20,11 +20,10 @@ Anyone who manages a data archive that is static or append-only and needs confid
 - Developers archiving source code, builds, or release artifacts
 - Anyone keeping records that must remain unaltered over time
 
-## Who this is not for
+## What this isn't
 
-- **Active working storage** — if your files change frequently by design, every change looks like a problem
-- **Primary backup verification** — this tool does not back anything up; it only tells you if what you have has changed
-- **Replacing a backup strategy** — you still need backups; this tells you whether those backups are intact
+- **Active working storage** — if your files change frequently by design, every change will look like a problem
+- **A replacement for backups** — if this tool detects corruption or missing files, you need a backup to recover them. It tells you something is wrong; it cannot fix it
 
 ## How it works
 
