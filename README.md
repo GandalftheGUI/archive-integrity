@@ -24,7 +24,7 @@ Anyone who manages a data archive that is static or append-only and needs confid
 
 - **Anyone whose files change frequently** — every modification will look like a problem
 - **Anyone already on ZFS or Btrfs** — checksumming filesystems handle integrity natively at the filesystem level, you probably don't need this tool on top
-- **Anyone looking to replace their backup strategy** — this tool detects when something is wrong, it cannot recover files
+- **Anyone without a backup strategy** — this tool tells you when something is wrong, but you need backups to recover from it
 
 ## How it works
 
