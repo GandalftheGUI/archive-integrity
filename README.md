@@ -20,10 +20,11 @@ Anyone who manages a data archive that is static or append-only and needs confid
 - Developers archiving source code, builds, or release artifacts
 - Anyone keeping records that must remain unaltered over time
 
-## What this isn't
+## Who this is not for
 
-- **Active working storage** — if your files change frequently by design, every change will look like a problem
-- **A replacement for backups** — if this tool detects corruption or missing files, you need a backup to recover them. It tells you something is wrong; it cannot fix it
+- **Anyone whose files change frequently** — every modification will look like a problem
+- **Anyone already on ZFS or Btrfs** — checksumming filesystems handle integrity natively at the filesystem level, you probably don't need this tool on top
+- **Anyone looking to replace their backup strategy** — this tool detects when something is wrong, it cannot recover files
 
 ## How it works
 
