@@ -3,30 +3,44 @@ import SwiftUI
 struct VolumeRow: View {
     let volume: MonitoredVolume
     @Environment(AppState.self) var appState
+    @Environment(\.openWindow) private var openWindow
+    @State private var isHovering = false
 
     private var progress: AppState.CheckProgress? { appState.activeChecks[volume.id] }
     private var isChecking: Bool { progress != nil }
 
     var body: some View {
         HStack(spacing: 10) {
-            VolumeStatusIcon(status: volume.overallStatus, size: 22)
+            Button {
+                appState.pendingSettingsSelection = volume.id
+                openWindow(id: "settings")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                HStack(spacing: 10) {
+                    VolumeStatusIcon(status: volume.overallStatus, size: 22)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(volume.displayName)
-                    .fontWeight(.medium)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(volume.displayName)
+                            .fontWeight(.medium)
 
-                if let p = progress {
-                    Text(p.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else {
-                    statusLine
+                        if let p = progress {
+                            Text(p.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            statusLine
+                        }
+                    }
+
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
             }
-
-            Spacer()
+            .buttonStyle(.plain)
+            .background(isHovering ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .onHover { isHovering = $0 }
 
             if isChecking {
                 Button("Cancel") { appState.cancelCheck(volumeID: volume.id) }

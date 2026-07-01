@@ -7,6 +7,8 @@ import Engine
 final class AppState {
     var volumes: [MonitoredVolume] = []
     var activeChecks: [UUID: CheckProgress] = [:]
+    /// Set by the menu bar row so the Settings window can select the right volume when it opens.
+    var pendingSettingsSelection: UUID?
 
     struct CheckProgress: Sendable {
         var mode: CheckMode
@@ -169,7 +171,7 @@ final class AppState {
                     fileCount: result.liveCount, issues: issues)
                 if !result.isClean {
                     await NotificationManager.shared.postFailure(
-                        volumeName: volume.displayName, issues: issues)
+                        volumeID: volume.id, volumeName: volume.displayName, issues: issues)
                 }
 
             case .deep:
@@ -207,7 +209,7 @@ final class AppState {
                     }
                 } else {
                     await NotificationManager.shared.postFailure(
-                        volumeName: volume.displayName, issues: issues)
+                        volumeID: volume.id, volumeName: volume.displayName, issues: issues)
                 }
 
                 // Always record the result so the UI always updates.

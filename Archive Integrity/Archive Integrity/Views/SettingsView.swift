@@ -73,6 +73,14 @@ struct SettingsView: View {
         .sheet(isPresented: $showingAddVolume) {
             AddVolumeView().environment(appState)
         }
+        .onAppear { adoptPendingSelection() }
+        .onChange(of: appState.pendingSettingsSelection) { _, _ in adoptPendingSelection() }
+    }
+
+    private func adoptPendingSelection() {
+        guard let pending = appState.pendingSettingsSelection else { return }
+        selection = pending
+        appState.pendingSettingsSelection = nil
     }
 }
 
@@ -524,11 +532,15 @@ private struct IssueFixButton: View {
     @State private var showRebuildWarning = false
 
     var body: some View {
-        Button("Fix…") { showPopover = true }
-            .font(.caption)
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .popover(isPresented: $showPopover, arrowEdge: .trailing) {
+        Button {
+            showPopover = true
+        } label: {
+            Label("Fix…", systemImage: "wrench.and.screwdriver")
+        }
+        .font(.caption)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .popover(isPresented: $showPopover, arrowEdge: .trailing) {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(type.headline)
                         .font(.callout)
