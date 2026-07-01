@@ -1,12 +1,14 @@
 import Foundation
 
 struct MonitoredVolume: Identifiable, Codable, Sendable {
+    static let defaultDeepCheckIntervalDays = 7
+
     var id: UUID = UUID()
     var displayName: String
     var archivePath: String
     var manifestPath: String
     var volumeUUID: String?          // populated for external drives; nil for local dirs
-    var deepCheckIntervalDays: Int = 30
+    var deepCheckIntervalDays: Int = MonitoredVolume.defaultDeepCheckIntervalDays
     /// Concurrent files hashed in parallel during deep check. 1 = sequential (HDD-safe), 4–8 for SSDs.
     var concurrency: Int = 1
 
