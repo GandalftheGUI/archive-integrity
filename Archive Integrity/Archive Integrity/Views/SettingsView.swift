@@ -15,25 +15,24 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 List(selection: $selection) {
                     ForEach(appState.volumes) { volume in
-                        HStack(spacing: 8) {
-                            statusIcon(for: volume)
-                            Text(volume.displayName)
-                                .lineLimit(1)
-                        }
-                        .tag(volume.id)
-                        .padding(.vertical, 2)
+                        SidebarVolumeRow(volume: volume)
+                            .tag(volume.id)
+                            .padding(.vertical, 3)
                     }
                 }
+                .listStyle(.sidebar)
 
                 Divider()
 
                 HStack(spacing: 0) {
                     Button { showingAddVolume = true } label: {
-                        Image(systemName: "plus").frame(width: 28, height: 28)
+                        Image(systemName: "plus")
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
 
-                    Divider().frame(height: 18)
+                    Divider().frame(height: 14)
 
                     Button {
                         if let id = selection {
@@ -41,45 +40,78 @@ struct SettingsView: View {
                             selection = nil
                         }
                     } label: {
-                        Image(systemName: "minus").frame(width: 28, height: 28)
+                        Image(systemName: "minus")
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
                     .disabled(selection == nil)
 
                     Spacer()
                 }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
             }
-            .frame(minWidth: 160, idealWidth: 180, maxWidth: 220)
+            .frame(minWidth: 190, idealWidth: 220, maxWidth: 260)
 
             // Right: detail panel
             Group {
                 if let volume = selectedVolume {
                     VolumeDetailView(volume: volume)
                 } else {
-                    Text("Select a volume")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ContentUnavailableView(
+                        "No Archive Selected",
+                        systemImage: "externaldrive.badge.questionmark",
+                        description: Text("Choose an archive on the left, or add a new one to start monitoring it.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(minWidth: 300)
+            .frame(minWidth: 400)
         }
-        .frame(minWidth: 520, minHeight: 300)
+        .frame(minWidth: 660, minHeight: 420)
         .sheet(isPresented: $showingAddVolume) {
             AddVolumeView().environment(appState)
         }
     }
+}
+
+// MARK: - Sidebar row
+
+private struct SidebarVolumeRow: View {
+    let volume: MonitoredVolume
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VolumeStatusIcon(status: volume.overallStatus)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(volume.displayName)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                subtitle
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
 
     @ViewBuilder
-    private func statusIcon(for volume: MonitoredVolume) -> some View {
-        switch volume.overallStatus {
-        case .clean:   Image(systemName: "checkmark.shield.fill").foregroundStyle(.green)
-        case .failed:  Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.red)
-        case .unknown: Image(systemName: "shield").foregroundStyle(.secondary)
+    private var subtitle: some View {
+        if let deep = volume.lastDeepCheck {
+            Text("\(deep.date.formatted(.relative(presentation: .named)))")
+        } else if volume.lastQuickCheck != nil {
+            Text("Quick check only")
+        } else {
+            Text("Never checked")
         }
     }
 }
+
+// MARK: - Detail panel
 
 struct VolumeDetailView: View {
     let volume: MonitoredVolume
@@ -99,110 +131,191 @@ struct VolumeDetailView: View {
         )
     }
 
+    private var deepCheckIntervalBinding: Binding<Int> {
+        Binding(
+            get: { appState.volumes.first(where: { $0.id == volume.id })?.deepCheckIntervalDays ?? 30 },
+            set: { newValue in
+                if let idx = appState.volumes.firstIndex(where: { $0.id == volume.id }) {
+                    appState.volumes[idx].deepCheckIntervalDays = newValue
+                    appState.save()
+                }
+            }
+        )
+    }
+
+    private var nextDeepCheckText: String {
+        guard let last = volume.lastDeepCheck else { return "Runs after the first deep check completes" }
+        let next = last.date.addingTimeInterval(Double(volume.deepCheckIntervalDays) * 86_400)
+        return next <= Date()
+            ? "Due on next mount"
+            : "Next due \(next.formatted(date: .abbreviated, time: .omitted))"
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
 
-                // Paths
-                GroupBox("Paths") {
-                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
-                        row("Archive", volume.archivePath)
-                        row("Manifest", volume.manifestPath)
+                header
+
+                SectionCard(title: "Paths", icon: "folder") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        pathRow("Archive", volume.archivePath, icon: "externaldrive")
+                        pathRow("Manifest", volume.manifestPath, icon: "doc.text")
                         if let uuid = volume.volumeUUID {
-                            row("Volume UUID", uuid)
+                            pathRow("Volume UUID", uuid, icon: "number")
                         }
                     }
-                    .padding(4)
                 }
 
-                // Per-drive check settings
-                GroupBox("Check Settings") {
-                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
-                        GridRow {
-                            Text("Concurrency")
-                                .foregroundStyle(.secondary)
-                                .gridColumnAlignment(.trailing)
-                            HStack(spacing: 8) {
-                                Stepper(value: concurrencyBinding, in: 1...16) {
-                                    Text("\(volume.concurrency) file\(volume.concurrency == 1 ? "" : "s") at a time")
-                                }
-                                Text(volume.concurrency == 1 ? "Sequential — safe for HDDs" : "Parallel — best for SSDs")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                SectionCard(title: "Check Settings", icon: "slider.horizontal.3") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            Stepper(value: concurrencyBinding, in: 1...16) {
+                                Text("\(volume.concurrency) file\(volume.concurrency == 1 ? "" : "s") at a time")
+                                    .fontWeight(.medium)
                             }
-                            .gridColumnAlignment(.leading)
+                            .fixedSize()
+
+                            Text(volume.concurrency == 1 ? "Sequential — safe for HDDs" : "Parallel — best for SSDs")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
                         }
+
+                        Divider()
+
+                        HStack(spacing: 12) {
+                            Stepper(value: deepCheckIntervalBinding, in: 1...365) {
+                                Text("Deep check every \(volume.deepCheckIntervalDays) day\(volume.deepCheckIntervalDays == 1 ? "" : "s")")
+                                    .fontWeight(.medium)
+                            }
+                            .fixedSize()
+
+                            Text(nextDeepCheckText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
+                        }
+
+                        Text("Runs automatically when the archive is mounted, if the interval has passed. A quick check always runs on mount.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
-                    .padding(4)
                 }
 
-                // Check history
-                GroupBox("Last Checks") {
-                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
-                        checkRow(label: "Quick", record: volume.lastQuickCheck)
-                        checkRow(label: "Deep",  record: volume.lastDeepCheck)
+                SectionCard(title: "Last Checks", icon: "clock.arrow.circlepath") {
+                    HStack(spacing: 12) {
+                        CheckStatTile(label: "Quick", record: volume.lastQuickCheck)
+                        CheckStatTile(label: "Deep", record: volume.lastDeepCheck)
                     }
-                    .padding(4)
                 }
 
-                // Issues from last quick check (missing files)
                 if let issues = volume.lastQuickCheck?.issues, !issues.isEmpty {
-                    GroupBox("Quick Check Issues") {
-                        VStack(alignment: .leading, spacing: 4) {
+                    SectionCard(title: "Quick Check Issues", icon: "exclamationmark.triangle", tint: .orange) {
+                        VStack(alignment: .leading, spacing: 6) {
                             ForEach(issues, id: \.self) { issue in
                                 issueRow(issue: issue, volumeID: volume.id)
                             }
                         }
-                        .padding(4)
                     }
                 }
 
-                // Issues / info from last deep check
                 if let issues = volume.lastDeepCheck?.issues, !issues.isEmpty {
                     let problems = issues.filter { !$0.hasPrefix("NEW:") }
                     let newTag   = issues.first(where: { $0.hasPrefix("NEW:") })
 
                     if let tag = newTag, let count = Int(tag.dropFirst(4)) {
-                        Label("\(count) new file(s) added to manifest", systemImage: "plus.circle")
+                        Label("\(count) new file(s) added to manifest", systemImage: "plus.circle.fill")
                             .font(.caption)
                             .foregroundStyle(.teal)
                     }
 
                     if !problems.isEmpty {
-                        GroupBox("Issues") {
-                            VStack(alignment: .leading, spacing: 4) {
+                        SectionCard(title: "Issues", icon: "exclamationmark.triangle", tint: .red) {
+                            VStack(alignment: .leading, spacing: 6) {
                                 ForEach(problems, id: \.self) { issue in
                                     issueRow(issue: issue, volumeID: volume.id)
                                 }
                             }
-                            .padding(4)
                         }
                     }
                 }
 
-                // Actions
-                if let progress = appState.activeChecks[volume.id] {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text(progress.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button("Cancel") { appState.cancelCheck(volumeID: volume.id) }
-                            .font(.caption)
-                    }
-                } else {
-                    HStack(spacing: 8) {
-                        Button("Quick Check") { appState.runCheck(volumeID: volume.id, mode: .quick) }
-                        Button("Deep Check")  { appState.runCheck(volumeID: volume.id, mode: .deep) }
-                        Spacer()
-                    }
-                }
-
+                actions
             }
-            .padding(16)
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(statusTint.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                Image(systemName: "externaldrive.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(statusTint)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(volume.displayName)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                StatusBadge(status: volume.overallStatus)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var statusTint: Color {
+        switch volume.overallStatus {
+        case .clean:   return .green
+        case .failed:  return .red
+        case .unknown: return .secondary
+        }
+    }
+
+    private var actions: some View {
+        Group {
+            if let progress = appState.activeChecks[volume.id] {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(progress.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("Cancel", role: .cancel) { appState.cancelCheck(volumeID: volume.id) }
+                        .font(.caption)
+                }
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        appState.runCheck(volumeID: volume.id, mode: .quick)
+                    } label: {
+                        Label("Quick Check", systemImage: "bolt.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        appState.runCheck(volumeID: volume.id, mode: .deep)
+                    } label: {
+                        Label("Deep Check", systemImage: "magnifyingglass")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+            }
         }
     }
 
@@ -218,10 +331,15 @@ struct VolumeDetailView: View {
         let type: IssueFixButton.IssueType? = isModified ? .modified : isMissing ? .missing : nil
 
         HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isModified ? "pencil.circle.fill" : "questionmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(isModified ? .red : .orange)
+
             Text(issue)
                 .font(.caption)
                 .foregroundStyle(isModified ? .red : .orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
 
             if let path, let type {
                 IssueFixButton(type: type, path: path, volumeID: volumeID)
@@ -229,53 +347,143 @@ struct VolumeDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private func row(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .gridColumnAlignment(.trailing)
-            Text(value)
+    private func pathRow(_ label: String, _ value: String, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
                 .font(.caption)
-                .textSelection(.enabled)
-                .gridColumnAlignment(.leading)
-        }
-    }
-
-    @ViewBuilder
-    private func checkRow(label: String, record: MonitoredVolume.CheckRecord?) -> some View {
-        GridRow {
-            Text(label)
                 .foregroundStyle(.secondary)
-                .gridColumnAlignment(.trailing)
-            Group {
-                if let r = record {
-                    HStack(spacing: 6) {
-                        outcomeLabel(r.outcome)
-                        Text("·")
-                            .foregroundStyle(.secondary)
-                        Text(r.date.formatted(date: .abbreviated, time: .shortened))
-                            .foregroundStyle(.secondary)
-                        Text("·")
-                            .foregroundStyle(.secondary)
-                        Text("\(r.fileCount) files")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("Never").foregroundStyle(.secondary)
-                }
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
             }
+        }
+    }
+}
+
+// MARK: - Reusable pieces
+
+private struct SectionCard<Content: View>: View {
+    let title: String
+    let icon: String
+    var tint: Color = .secondary
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: icon)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(tint == .secondary ? .primary : tint)
+
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.quaternary.opacity(0.6), lineWidth: 1)
+        )
+    }
+}
+
+private struct StatusBadge: View {
+    let status: MonitoredVolume.Status
+
+    var body: some View {
+        Label(text, systemImage: symbol)
             .font(.caption)
-            .gridColumnAlignment(.leading)
+            .fontWeight(.medium)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(tint.opacity(0.14), in: Capsule())
+    }
+
+    private var text: String {
+        switch status {
+        case .clean:   return "Clean"
+        case .failed:  return "Issues Found"
+        case .unknown: return "Not Checked"
         }
     }
 
-    @ViewBuilder
-    private func outcomeLabel(_ outcome: MonitoredVolume.CheckRecord.Outcome) -> some View {
+    private var symbol: String {
+        switch status {
+        case .clean:   return "checkmark.circle.fill"
+        case .failed:  return "exclamationmark.circle.fill"
+        case .unknown: return "questionmark.circle.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch status {
+        case .clean:   return .green
+        case .failed:  return .red
+        case .unknown: return .secondary
+        }
+    }
+}
+
+private struct CheckStatTile: View {
+    let label: String
+    let record: MonitoredVolume.CheckRecord?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let r = record {
+                Label(outcomeText(r.outcome), systemImage: outcomeIcon(r.outcome))
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .foregroundStyle(outcomeColor(r.outcome))
+
+                Text("\(r.date.formatted(date: .abbreviated, time: .shortened)) · \(r.fileCount) files")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Label("Never", systemImage: "minus.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text(" ")
+                    .font(.caption2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quinary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func outcomeText(_ outcome: MonitoredVolume.CheckRecord.Outcome) -> String {
         switch outcome {
-        case .clean:     Text("Clean").foregroundStyle(.green)
-        case .failed:    Text("Failed").foregroundStyle(.red)
-        case .uncovered: Text("New files").foregroundStyle(.orange)
+        case .clean:     return "Clean"
+        case .failed:    return "Failed"
+        case .uncovered: return "New files"
+        }
+    }
+
+    private func outcomeIcon(_ outcome: MonitoredVolume.CheckRecord.Outcome) -> String {
+        switch outcome {
+        case .clean:     return "checkmark.circle.fill"
+        case .failed:    return "xmark.circle.fill"
+        case .uncovered: return "plus.circle.fill"
+        }
+    }
+
+    private func outcomeColor(_ outcome: MonitoredVolume.CheckRecord.Outcome) -> Color {
+        switch outcome {
+        case .clean:     return .green
+        case .failed:    return .red
+        case .uncovered: return .orange
         }
     }
 }

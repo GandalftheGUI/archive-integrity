@@ -12,6 +12,7 @@ struct Archive_IntegrityApp: App {
         } label: {
             Image(systemName: appState.menuBarIcon)
         }
+        .menuBarExtraStyle(.window)
 
         Window("Settings", id: "settings") {
             SettingsView()

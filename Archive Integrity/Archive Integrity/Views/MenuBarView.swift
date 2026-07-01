@@ -7,33 +7,74 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if appState.volumes.isEmpty {
-                Text("No volumes monitored")
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-            } else {
-                ForEach(appState.volumes) { volume in
-                    VolumeRow(volume: volume)
+                VStack(spacing: 6) {
+                    Image(systemName: "externaldrive.badge.questionmark")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.secondary)
+                    Text("No archives monitored")
+                        .foregroundStyle(.secondary)
+                    Text("Add one from Settings…")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(appState.volumes) { volume in
+                        VolumeRow(volume: volume)
+                    }
+                }
+                .padding(.vertical, 4)
+
                 Divider().padding(.vertical, 4)
             }
 
-            Button("Settings…") {
+            MenuActionRow(title: "Settings…", icon: "gearshape", shortcutHint: "⌘,", key: ",") {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
             }
-            .keyboardShortcut(",", modifiers: .command)
-            .padding(.horizontal, 4)
 
             Divider().padding(.vertical, 4)
 
-            Button("Quit") {
+            MenuActionRow(title: "Quit", icon: "power", shortcutHint: "⌘Q", key: "q") {
                 NSApp.terminate(nil)
             }
-            .keyboardShortcut("q", modifiers: .command)
-            .padding(.horizontal, 4)
             .padding(.bottom, 4)
         }
-        .frame(minWidth: 300)
+        .padding(.vertical, 4)
+        .frame(minWidth: 220, idealWidth: 240)
+    }
+}
+
+private struct MenuActionRow: View {
+    let title: String
+    let icon: String
+    let shortcutHint: String
+    let key: KeyEquivalent
+    var modifiers: EventModifiers = .command
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .frame(width: 16)
+                Text(title)
+                Spacer()
+                Text(shortcutHint)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(key, modifiers: modifiers)
+        .background(isHovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { isHovering = $0 }
+        .padding(.horizontal, 6)
     }
 }

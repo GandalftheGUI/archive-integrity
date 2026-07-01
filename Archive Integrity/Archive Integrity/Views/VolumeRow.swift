@@ -9,7 +9,7 @@ struct VolumeRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            statusIcon
+            VolumeStatusIcon(status: volume.overallStatus, size: 22)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(volume.displayName)
@@ -45,22 +45,8 @@ struct VolumeRow: View {
                 .fixedSize()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-    }
-
-    private var statusIcon: some View {
-        Group {
-            switch volume.overallStatus {
-            case .clean:
-                Image(systemName: "checkmark.shield.fill").foregroundStyle(.green)
-            case .failed:
-                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.red)
-            case .unknown:
-                Image(systemName: "shield").foregroundStyle(.secondary)
-            }
-        }
-        .imageScale(.medium)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
