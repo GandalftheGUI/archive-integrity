@@ -2,6 +2,8 @@
 
 A macOS tool for detecting silent data loss on cold storage archives — bit rot, accidental deletions, and undetected corruption.
 
+<img width="1001" height="1051" alt="image" src="https://github.com/user-attachments/assets/e858ad38-c4ca-4d9f-a64c-0a814ea4eb14" />
+
 ## Why I built this
 
 I keep my archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. I plug it in regularly and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted. You don't find out until years later when you actually need the file.
