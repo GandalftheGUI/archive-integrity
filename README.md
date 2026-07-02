@@ -8,8 +8,6 @@ A macOS tool for detecting silent data loss on cold storage archives — bit rot
 
 Download the latest `.dmg` from the [Releases page](https://github.com/GandalftheGUI/archive-integrity/releases/latest), open it, and drag **Archive Integrity** into your Applications folder.
 
-Just want the CLI, or prefer to build from source? See [Building](#building) below.
-
 ## Why I built this
 
 I keep my archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. I plug it in regularly and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted. You don't find out until years later when you actually need the file.
