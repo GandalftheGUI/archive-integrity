@@ -73,6 +73,7 @@ public struct Verifier: Sendable {
 
         var result = DeepCheckResult()
         var completed = 0
+        var lastProgressUpdate = Date.distantPast
 
         try await withThrowingTaskGroup(of: FileResult.self) { group in
             var iter = work.makeIterator()
@@ -109,7 +110,9 @@ public struct Verifier: Sendable {
             // Drain: collect a result, refill one slot, repeat.
             while let fileResult = try await group.next() {
                 completed += 1
-                onProgress?(.hashing(path: fileResult.path, index: completed, total: total))
+                if Self.shouldReportProgress(completed: completed, total: total, since: &lastProgressUpdate) {
+                    onProgress?(.hashing(path: fileResult.path, index: completed, total: total))
+                }
                 switch fileResult {
                 case .ok(let p):                         result.ok.append(p)
                 case .corrupted(let p, let e, let a):    result.corrupted.append(CorruptedFile(path: p, expected: e, actual: a))
@@ -159,9 +162,12 @@ public struct Verifier: Sendable {
             for _ in 0..<min(concurrency, paths.count) { submit() }
 
             var completed = 0
+            var lastProgressUpdate = Date.distantPast
             while let (path, hash) = try await group.next() {
                 completed += 1
-                onProgress?(.hashing(path: path, index: completed, total: total))
+                if Self.shouldReportProgress(completed: completed, total: total, since: &lastProgressUpdate) {
+                    onProgress?(.hashing(path: path, index: completed, total: total))
+                }
                 newEntries[path] = hash
                 submit()
             }
@@ -172,6 +178,16 @@ public struct Verifier: Sendable {
     }
 
     // MARK: - Helpers
+
+    /// Caps progress callbacks to roughly 10/sec (always reporting the final item), so a large
+    /// archive doesn't fire hundreds of thousands of progress events nobody can perceive —
+    /// each one costs a real hop back to the caller (e.g. a MainActor UI update) that adds up.
+    private static func shouldReportProgress(completed: Int, total: Int, since lastUpdate: inout Date) -> Bool {
+        let now = Date()
+        guard completed == total || now.timeIntervalSince(lastUpdate) >= 0.1 else { return false }
+        lastUpdate = now
+        return true
+    }
 
     private func fileURL(for manifestPath: String, root: URL) -> URL {
         let relative = manifestPath.hasPrefix("./") ? String(manifestPath.dropFirst(2)) : manifestPath

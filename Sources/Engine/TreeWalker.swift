@@ -53,8 +53,10 @@ public struct TreeWalker {
                 continue
             }
 
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-            guard values.isRegularFile == true else { continue }
+            // A single file erroring out here (deleted mid-enumeration, a transient I/O hiccup)
+            // shouldn't abort the entire walk — just skip that one entry.
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey]),
+                  values.isRegularFile == true else { continue }
 
             let absPath = url.resolvingSymlinksInPath().path
             guard absPath.hasPrefix(rootPrefix) else { continue }
