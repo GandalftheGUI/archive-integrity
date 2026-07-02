@@ -165,8 +165,9 @@ struct VolumeDetailView: View {
         guard let last = volume.lastDeepCheck else { return "Runs after the first deep check completes" }
         let calendar = Calendar.current
         let now = Date()
+        let referenceDate = max(last.date, volume.lastDeepAttempt ?? .distantPast)
         guard let dueDate = calendar.date(
-            byAdding: .day, value: volume.deepCheckIntervalDays, to: calendar.startOfDay(for: last.date)
+            byAdding: .day, value: volume.deepCheckIntervalDays, to: calendar.startOfDay(for: referenceDate)
         ), let dueDateTime = calendar.date(byAdding: .hour, value: volume.effectiveScheduledHour, to: dueDate)
         else { return "" }
 

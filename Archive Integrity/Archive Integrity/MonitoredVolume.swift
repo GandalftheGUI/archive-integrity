@@ -22,6 +22,14 @@ struct MonitoredVolume: Identifiable, Codable, Sendable {
     var lastQuickCheck: CheckRecord?
     var lastDeepCheck: CheckRecord?
 
+    /// Timestamp of the most recent check *attempt* of each mode — set as soon as a check
+    /// starts, regardless of whether it completes, fails, or gets cancelled. Distinct from
+    /// lastQuickCheck/lastDeepCheck, which only record completed results and drive the UI.
+    /// Used purely so due-date scheduling doesn't treat a cancelled/incomplete attempt as if
+    /// nothing happened and immediately retry it.
+    var lastQuickAttempt: Date?
+    var lastDeepAttempt: Date?
+
     struct CheckRecord: Codable, Sendable {
         var date: Date
         var outcome: Outcome

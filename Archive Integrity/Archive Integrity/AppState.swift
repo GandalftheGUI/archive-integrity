@@ -111,8 +111,12 @@ final class AppState {
             // (whether from this scheduler or a manual/mount-triggered check) has nothing to do
             // with whether a deep check is separately due; shouldAutoDeepCheck already has its
             // own interval-based due-check against deepCheckIntervalDays.
-            let quickAlreadyRanToday = volume.lastQuickCheck.map {
-                calendar.isDate($0.date, inSameDayAs: now)
+            // Uses lastQuickAttempt (set the instant a check starts) rather than lastQuickCheck
+            // (only set on completion), so a cancelled attempt still counts as "already tried
+            // today" instead of looking untouched and getting retried on the next tick.
+            let quickReferenceDate = volume.lastQuickAttempt ?? volume.lastQuickCheck?.date
+            let quickAlreadyRanToday = quickReferenceDate.map {
+                calendar.isDate($0, inSameDayAs: now)
             } ?? false
             if !quickAlreadyRanToday {
                 runCheck(volumeID: volume.id, mode: .quick)
@@ -200,11 +204,16 @@ final class AppState {
     /// Whether a deep check is due, by calendar date rather than exact elapsed seconds — due on
     /// the date `deepCheckIntervalDays` days after the last deep check's date, as soon as today's
     /// date reaches that day (not tied to what time of day the last check happened to finish at).
+    /// Requires at least one deep check to have ever *completed* (that's the real baseline check),
+    /// but measures the interval from whichever is more recent, completion or attempt, so a
+    /// cancelled/incomplete attempt today still pushes the next due date out instead of leaving
+    /// it looking untouched and getting retried on the next tick.
     private func shouldAutoDeepCheck(_ volume: MonitoredVolume) -> Bool {
         guard let last = volume.lastDeepCheck else { return false }
         let calendar = Calendar.current
+        let referenceDate = max(last.date, volume.lastDeepAttempt ?? .distantPast)
         guard let dueDate = calendar.date(
-            byAdding: .day, value: volume.deepCheckIntervalDays, to: calendar.startOfDay(for: last.date)
+            byAdding: .day, value: volume.deepCheckIntervalDays, to: calendar.startOfDay(for: referenceDate)
         ) else { return false }
         return calendar.startOfDay(for: Date()) >= dueDate
     }
@@ -239,6 +248,10 @@ final class AppState {
 
         guard let idx = volumes.firstIndex(where: { $0.id == volume.id }) else { return }
         let startTime = Date()
+        switch mode {
+        case .quick: volumes[idx].lastQuickAttempt = startTime
+        case .deep:  volumes[idx].lastDeepAttempt = startTime
+        }
 
         do {
             var manifest = try Manifest(url: volume.manifestURL)
