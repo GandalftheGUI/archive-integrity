@@ -163,10 +163,16 @@ struct VolumeDetailView: View {
 
     private var nextDeepCheckText: String {
         guard let last = volume.lastDeepCheck else { return "Runs after the first deep check completes" }
-        let next = last.date.addingTimeInterval(Double(volume.deepCheckIntervalDays) * 86_400)
-        return next <= Date()
+        let calendar = Calendar.current
+        let now = Date()
+        guard let dueDate = calendar.date(
+            byAdding: .day, value: volume.deepCheckIntervalDays, to: calendar.startOfDay(for: last.date)
+        ), let dueDateTime = calendar.date(byAdding: .hour, value: volume.effectiveScheduledHour, to: dueDate)
+        else { return "" }
+
+        return now >= dueDateTime
             ? "Due on next mount"
-            : "Next due \(next.formatted(date: .abbreviated, time: .omitted))"
+            : "Next due \(dueDateTime.formatted(date: .abbreviated, time: .shortened))"
     }
 
     private var scheduledHourBinding: Binding<Int> {

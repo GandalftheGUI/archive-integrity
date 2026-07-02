@@ -103,14 +103,20 @@ final class AppState {
             // than skipping it entirely. Each day is evaluated independently (see the "already
             // ran today" check below), so a late catch-up never shifts future days' schedule.
             guard calendar.component(.hour, from: now) >= volume.effectiveScheduledHour else { continue }
-            // A quick check already ran today (whether from this scheduler or a manual/mount-
-            // triggered check) — nothing more to do until tomorrow.
-            if let lastQuick = volume.lastQuickCheck?.date, calendar.isDate(lastQuick, inSameDayAs: now) { continue }
             // Skip archives that aren't actually reachable right now (e.g. an unplugged
             // external drive) — otherwise every file would be misreported as missing.
             guard FileManager.default.fileExists(atPath: volume.archivePath) else { continue }
 
-            runCheck(volumeID: volume.id, mode: .quick)
+            // Quick and deep are gated independently — a quick check already having run today
+            // (whether from this scheduler or a manual/mount-triggered check) has nothing to do
+            // with whether a deep check is separately due; shouldAutoDeepCheck already has its
+            // own interval-based due-check against deepCheckIntervalDays.
+            let quickAlreadyRanToday = volume.lastQuickCheck.map {
+                calendar.isDate($0.date, inSameDayAs: now)
+            } ?? false
+            if !quickAlreadyRanToday {
+                runCheck(volumeID: volume.id, mode: .quick)
+            }
             if shouldAutoDeepCheck(volume) {
                 runCheck(volumeID: volume.id, mode: .deep)
             }
@@ -191,9 +197,16 @@ final class AppState {
         }
     }
 
+    /// Whether a deep check is due, by calendar date rather than exact elapsed seconds — due on
+    /// the date `deepCheckIntervalDays` days after the last deep check's date, as soon as today's
+    /// date reaches that day (not tied to what time of day the last check happened to finish at).
     private func shouldAutoDeepCheck(_ volume: MonitoredVolume) -> Bool {
         guard let last = volume.lastDeepCheck else { return false }
-        return Date().timeIntervalSince(last.date) >= Double(volume.deepCheckIntervalDays * 86_400)
+        let calendar = Calendar.current
+        guard let dueDate = calendar.date(
+            byAdding: .day, value: volume.deepCheckIntervalDays, to: calendar.startOfDay(for: last.date)
+        ) else { return false }
+        return calendar.startOfDay(for: Date()) >= dueDate
     }
 
     // MARK: - Running checks
