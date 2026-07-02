@@ -4,6 +4,12 @@ A macOS tool for detecting silent data loss on cold storage archives — bit rot
 
 <img width="1001" height="1051" alt="image" src="https://github.com/user-attachments/assets/e858ad38-c4ca-4d9f-a64c-0a814ea4eb14" />
 
+## Install
+
+Download the latest `.dmg` from the [Releases page](https://github.com/GandalftheGUI/archive-integrity/releases/latest), open it, and drag **Archive Integrity** into your Applications folder. It's signed and notarized, so it launches without any Gatekeeper warnings — no need to right-click → Open or approve it in System Settings.
+
+Just want the CLI, or prefer to build from source? See [Building](#building) below.
+
 ## Why I built this
 
 I keep my archive on an external SSD: ~80,000 files, ~3.75 TB, accumulated over years. I plug it in regularly and assume everything is fine. But drives fail quietly. A sector goes bad, a file gets silently corrupted, a folder gets accidentally deleted. You don't find out until years later when you actually need the file.
@@ -105,7 +111,7 @@ Concurrency (parallel file reads) helps on SSDs and NVMe by keeping the drive's 
 
 ## Requirements
 
-- macOS 14+ (menu-bar app)
+- macOS 26.5+ (menu-bar app)
 - macOS 13+ (CLI)
 - Swift 6
 
