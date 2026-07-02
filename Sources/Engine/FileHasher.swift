@@ -48,7 +48,24 @@ public struct FileHasher {
 
         let digest = hasher.finalize()
         return digest.withUnsafeBytes { bytes in
-            bytes.map { String(format: "%02x", $0) }.joined()
+            Self.hexString(bytes)
+        }
+    }
+
+    private static let hexDigits: [UInt8] = Array("0123456789abcdef".utf8)
+
+    /// Renders raw digest bytes as lowercase hex directly into a UTF-8 buffer, avoiding the
+    /// per-byte printf-style formatting overhead of `String(format: "%02x", byte)` — this runs
+    /// once per byte of every file's digest, so it adds up fast across a large archive.
+    private static func hexString(_ bytes: UnsafeRawBufferPointer) -> String {
+        String(unsafeUninitializedCapacity: bytes.count * 2) { buffer in
+            var i = 0
+            for byte in bytes {
+                buffer[i] = hexDigits[Int(byte >> 4)]
+                buffer[i + 1] = hexDigits[Int(byte & 0x0F)]
+                i += 2
+            }
+            return i
         }
     }
 }

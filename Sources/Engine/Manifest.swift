@@ -24,38 +24,41 @@ public struct Manifest: Sendable {
     }
 
     private static func parse(url: URL) throws -> [String: String] {
-        let text = try String(contentsOf: url, encoding: .utf8)
+        let data = try Data(contentsOf: url)
         var result: [String: String] = [:]
 
-        // Split on the Unicode *scalar* "\n", not a grapheme-cluster-based Character split.
+        // Split on the raw byte 0x0A ("\n"), operating on bytes rather than Character/Scalar.
         // A path can legitimately end in a raw "\r" (e.g. macOS's hidden `Icon\r` custom-folder-icon
-        // marker); Swift's Character clusters a trailing "\r" with the following "\n" into a single
-        // grapheme, so `String.split(separator: "\n" as Character)` silently fails to split there,
-        // merging that entry with the next line.
-        var line = String.UnicodeScalarView()
-        for scalar in text.unicodeScalars {
-            if scalar == "\n" {
-                parseLine(String(line), into: &result)
-                line.removeAll(keepingCapacity: true)
-            } else {
-                line.append(scalar)
+        // marker); Swift's Character clusters a trailing "\r" with a following "\n" into a single
+        // grapheme, so splitting via the Character/Scalar layer risks merging that entry with the
+        // next line depending on how it's done. Working on bytes sidesteps that entirely, and is
+        // also significantly faster for large manifests than building lines one Unicode scalar at
+        // a time and parsing them via Character-indexed slicing.
+        var lineStart = data.startIndex
+        var i = data.startIndex
+        while i < data.endIndex {
+            if data[i] == 0x0A {
+                parseLine(data[lineStart..<i], into: &result)
+                lineStart = data.index(after: i)
             }
+            i = data.index(after: i)
         }
-        if !line.isEmpty {
-            parseLine(String(line), into: &result)
+        if lineStart < data.endIndex {
+            parseLine(data[lineStart..<data.endIndex], into: &result)
         }
 
         return result
     }
 
-    private static func parseLine(_ s: String, into result: inout [String: String]) {
-        // Minimum valid line: 64 hex + "  " + "./" + at least one char = 69 chars
-        guard s.count >= 69 else { return }
-        let hashEnd = s.index(s.startIndex, offsetBy: 64)
-        let sepEnd = s.index(hashEnd, offsetBy: 2)
-        guard s[hashEnd..<sepEnd] == "  " else { return }
-        let hash = String(s[s.startIndex..<hashEnd])
-        let path = String(s[sepEnd...])
+    private static func parseLine(_ line: Data, into result: inout [String: String]) {
+        // Minimum valid line: 64 hex + "  " + "./" + at least one byte = 69 bytes
+        guard line.count >= 69 else { return }
+        let start = line.startIndex
+        let hashEnd = line.index(start, offsetBy: 64)
+        let sepEnd = line.index(hashEnd, offsetBy: 2)
+        guard line[hashEnd] == 0x20, line[line.index(after: hashEnd)] == 0x20 else { return }
+        let hash = String(decoding: line[start..<hashEnd], as: UTF8.self)
+        let path = String(decoding: line[sepEnd...], as: UTF8.self)
         guard path.hasPrefix("./"), !path.isEmpty else { return }
         result[path] = hash
     }
