@@ -52,8 +52,8 @@ struct VerifyCommand: AsyncParsableCommand {
         print("  Live:     \(result.liveCount) files")
         print()
 
-        for path in result.missing { print("MISSING   \(path)") }
-        for path in result.new     { print("NEW       \(path)") }
+        for path in result.missing { print("MISSING   \(path.sanitizedForDisplay())") }
+        for path in result.new     { print("NEW       \(path.sanitizedForDisplay())") }
 
         if !result.missing.isEmpty {
             if !result.new.isEmpty { print() }
@@ -98,15 +98,15 @@ struct VerifyCommand: AsyncParsableCommand {
 
         // Detail lines
         for f in result.corrupted {
-            print("CORRUPTED \(f.path)")
+            print("CORRUPTED \(f.path.sanitizedForDisplay())")
             print("  expected: \(f.expected)")
             print("  actual:   \(f.actual)")
         }
         for path in result.missing {
-            print("MISSING   \(path)")
+            print("MISSING   \(path.sanitizedForDisplay())")
         }
         for path in result.new.keys.sorted() {
-            print("NEW       \(path)")
+            print("NEW       \(path.sanitizedForDisplay())")
         }
 
         // All-files-fail heuristic: likely a path/mount mismatch, not mass corruption

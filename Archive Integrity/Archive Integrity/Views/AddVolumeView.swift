@@ -11,6 +11,7 @@ struct AddVolumeView: View {
     @State private var manifestPath = ""
     @State private var volumeUUID: String? = nil
     @State private var deepCheckDays = MonitoredVolume.defaultDeepCheckIntervalDays
+    @State private var scheduledHour = MonitoredVolume.defaultScheduledHour
     @State private var driveType: DriveType = .ssd
     @State private var showManifestInfo = false
     @State private var showAdvanced = false
@@ -119,7 +120,7 @@ struct AddVolumeView: View {
                     }
                 }
 
-                Section("Check Settings") {
+                Section("Deep Check Settings") {
                     VStack(alignment: .leading, spacing: 6) {
                         Picker("Drive Type", selection: $driveType) {
                             ForEach(DriveType.allCases) { type in
@@ -140,7 +141,19 @@ struct AddVolumeView: View {
                             "Deep check every \(deepCheckDays) day\(deepCheckDays == 1 ? "" : "s")",
                             value: $deepCheckDays, in: 1...365
                         )
-                        Text("A quick file-count check runs on every mount.")
+
+                        HStack(spacing: 8) {
+                            Text("Scheduled for")
+                            Picker("", selection: $scheduledHour) {
+                                ForEach(0..<24, id: \.self) { hour in
+                                    Text(hourLabel(hour)).tag(hour)
+                                }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                        }
+
+                        Text("A quick file-count check runs on every mount, or once daily at the scheduled hour if the archive stays mounted.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -160,13 +173,20 @@ struct AddVolumeView: View {
                         manifestPath: manifestPath,
                         volumeUUID: volumeUUID,
                         deepCheckIntervalDays: deepCheckDays,
-                        concurrency: driveType.concurrency
+                        concurrency: driveType.concurrency,
+                        scheduledHour: scheduledHour
                     ))
                     dismiss()
                 }
                 .disabled(!canAdd)
             }
         }
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        let period = hour < 12 ? "AM" : "PM"
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+        return "\(displayHour):00 \(period)"
     }
 
     @ViewBuilder

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Engine
+import ServiceManagement
 
 @MainActor
 @Observable
@@ -9,6 +10,22 @@ final class AppState {
     var activeChecks: [UUID: CheckProgress] = [:]
     /// Set by the menu bar row so the Settings window can select the right volume when it opens.
     var pendingSettingsSelection: UUID?
+
+    var launchAtLoginEnabled: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                // Registration failed (e.g. not yet installed in /Applications); the toggle
+                // will just reflect the actual current status next time it's read.
+            }
+        }
+    }
 
     struct CheckProgress: Sendable {
         var mode: CheckMode
@@ -19,6 +36,7 @@ final class AppState {
     enum CheckMode { case quick, deep }
 
     private var diskMonitor: DiskMonitor?
+    private var scheduledCheckActivity: NSBackgroundActivityScheduler?
 
     private var configURL: URL {
         FileManager.default
@@ -49,6 +67,54 @@ final class AppState {
         monitor.start()
         diskMonitor = monitor
         Task { await NotificationManager.shared.requestPermission() }
+
+        // Covers archives that are always mounted (e.g. a folder on the internal disk),
+        // which never generate a mount event after the first launch. Deliberately does NOT
+        // catch up on app launch or wake-from-sleep — checks are CPU-heavy, and firing one at
+        // whatever moment you happen to open your laptop would be exactly the wrong time.
+        // Uses NSBackgroundActivityScheduler rather than a plain Timer so the OS's power
+        // management picks the actual best moment within the tolerance window (batching with
+        // other apps' scheduled wakeups, deferring under thermal/battery pressure) instead of
+        // insisting on an exact tick every 15 minutes.
+        let activity = NSBackgroundActivityScheduler(identifier: "com.archiveintegrity.scheduledcheck")
+        activity.repeats = true
+        activity.interval = 15 * 60
+        activity.tolerance = 5 * 60
+        activity.qualityOfService = .utility
+        activity.schedule { [weak self] completion in
+            Task { @MainActor in
+                self?.runScheduledChecksIfDue()
+                completion(.finished)
+            }
+        }
+        scheduledCheckActivity = activity
+    }
+
+    // MARK: - Daily scheduled check
+
+    private func runScheduledChecksIfDue() {
+        let calendar = Calendar.current
+        let now = Date()
+
+        for volume in volumes {
+            // Any time from the scheduled hour onward, not just within that exact hour — this
+            // still never fires early, and never on wake/launch (see start()), but a Mac that's
+            // asleep right at the scheduled hour will still catch up later the same day rather
+            // than skipping it entirely. Each day is evaluated independently (see the "already
+            // ran today" check below), so a late catch-up never shifts future days' schedule.
+            guard calendar.component(.hour, from: now) >= volume.effectiveScheduledHour else { continue }
+            // A quick check already ran today (whether from this scheduler or a manual/mount-
+            // triggered check) — nothing more to do until tomorrow.
+            if let lastQuick = volume.lastQuickCheck?.date, calendar.isDate(lastQuick, inSameDayAs: now) { continue }
+            // Skip archives that aren't actually reachable right now (e.g. an unplugged
+            // external drive) — otherwise every file would be misreported as missing.
+            guard FileManager.default.fileExists(atPath: volume.archivePath) else { continue }
+
+            runCheck(volumeID: volume.id, mode: .quick)
+            if shouldAutoDeepCheck(volume) {
+                runCheck(volumeID: volume.id, mode: .deep)
+            }
+        }
     }
 
     // MARK: - Persistence
@@ -135,7 +201,9 @@ final class AppState {
     func runCheck(volumeID: UUID, mode: CheckMode) {
         guard let volume = volumes.first(where: { $0.id == volumeID }),
               activeChecks[volumeID] == nil else { return }
-        let task = Task { await performCheck(volume: volume, mode: mode) }
+        // Run at .utility priority so the scheduler yields CPU to whatever you're actively doing
+        // instead of a check competing evenly with foreground work.
+        let task = Task(priority: .utility) { await performCheck(volume: volume, mode: mode) }
         activeChecks[volumeID] = CheckProgress(
             mode: mode,
             message: mode == .quick ? "Quick check…" : "Deep check…",
@@ -157,6 +225,7 @@ final class AppState {
         }
 
         guard let idx = volumes.firstIndex(where: { $0.id == volume.id }) else { return }
+        let startTime = Date()
 
         do {
             var manifest = try Manifest(url: volume.manifestURL)
@@ -165,13 +234,14 @@ final class AppState {
             switch mode {
             case .quick:
                 let result = try verifier.quickCheck(root: volume.archiveURL, manifest: manifest)
-                let issues = result.missing.map { "MISSING: \($0)" }
+                let issues = result.missing.map { "MISSING: \($0.sanitizedForDisplay())" }
                 volumes[idx].lastQuickCheck = .init(
                     date: Date(), outcome: result.isClean ? .clean : .failed,
-                    fileCount: result.liveCount, issues: issues)
+                    fileCount: result.liveCount, issues: issues,
+                    duration: Date().timeIntervalSince(startTime))
                 if !result.isClean {
                     await NotificationManager.shared.postFailure(
-                        volumeID: volume.id, volumeName: volume.displayName, issues: issues)
+                        volumeID: volume.id, volumeName: volume.displayName, checkType: "Quick", issues: issues)
                 }
 
             case .deep:
@@ -186,14 +256,14 @@ final class AppState {
                 ) { [weak self] event in
                     if case .hashing(let path, let index, let total) = event {
                         Task { @MainActor [weak self] in
-                            self?.activeChecks[volume.id]?.message = "[\(index)/\(total)] \(path)"
+                            self?.activeChecks[volume.id]?.message = "[\(index)/\(total)] \(path.sanitizedForDisplay())"
                         }
                     }
                 }
 
                 var issues: [String] = []
-                issues += result.corrupted.map { "MODIFIED: \($0.path)" }
-                issues += result.missing.map  { "MISSING: \($0)" }
+                issues += result.corrupted.map { "MODIFIED: \($0.path.sanitizedForDisplay())" }
+                issues += result.missing.map  { "MISSING: \($0.sanitizedForDisplay())" }
 
                 // Total live files — valid regardless of whether manifest write succeeds.
                 let liveCount = result.totalChecked + result.new.count
@@ -209,7 +279,7 @@ final class AppState {
                     }
                 } else {
                     await NotificationManager.shared.postFailure(
-                        volumeID: volume.id, volumeName: volume.displayName, issues: issues)
+                        volumeID: volume.id, volumeName: volume.displayName, checkType: "Deep", issues: issues)
                 }
 
                 // Always record the result so the UI always updates.
@@ -217,7 +287,8 @@ final class AppState {
                     date: Date(),
                     outcome: result.isClean ? .clean : .failed,
                     fileCount: liveCount,
-                    issues: issues)
+                    issues: issues,
+                    duration: Date().timeIntervalSince(startTime))
             }
         } catch {
             // Manifest unreadable — leave state unchanged

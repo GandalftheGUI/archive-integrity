@@ -26,19 +26,38 @@ public struct Manifest: Sendable {
     private static func parse(url: URL) throws -> [String: String] {
         let text = try String(contentsOf: url, encoding: .utf8)
         var result: [String: String] = [:]
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            let s = String(line)
-            // Minimum valid line: 64 hex + "  " + "./" + at least one char = 69 chars
-            guard s.count >= 69 else { continue }
-            let hashEnd = s.index(s.startIndex, offsetBy: 64)
-            let sepEnd = s.index(hashEnd, offsetBy: 2)
-            guard s[hashEnd..<sepEnd] == "  " else { continue }
-            let hash = String(s[s.startIndex..<hashEnd])
-            let path = String(s[sepEnd...])
-            guard path.hasPrefix("./"), !path.isEmpty else { continue }
-            result[path] = hash
+
+        // Split on the Unicode *scalar* "\n", not a grapheme-cluster-based Character split.
+        // A path can legitimately end in a raw "\r" (e.g. macOS's hidden `Icon\r` custom-folder-icon
+        // marker); Swift's Character clusters a trailing "\r" with the following "\n" into a single
+        // grapheme, so `String.split(separator: "\n" as Character)` silently fails to split there,
+        // merging that entry with the next line.
+        var line = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if scalar == "\n" {
+                parseLine(String(line), into: &result)
+                line.removeAll(keepingCapacity: true)
+            } else {
+                line.append(scalar)
+            }
         }
+        if !line.isEmpty {
+            parseLine(String(line), into: &result)
+        }
+
         return result
+    }
+
+    private static func parseLine(_ s: String, into result: inout [String: String]) {
+        // Minimum valid line: 64 hex + "  " + "./" + at least one char = 69 chars
+        guard s.count >= 69 else { return }
+        let hashEnd = s.index(s.startIndex, offsetBy: 64)
+        let sepEnd = s.index(hashEnd, offsetBy: 2)
+        guard s[hashEnd..<sepEnd] == "  " else { return }
+        let hash = String(s[s.startIndex..<hashEnd])
+        let path = String(s[sepEnd...])
+        guard path.hasPrefix("./"), !path.isEmpty else { return }
+        result[path] = hash
     }
 
     public func hash(for path: String) -> String? {

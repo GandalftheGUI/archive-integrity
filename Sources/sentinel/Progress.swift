@@ -1,4 +1,5 @@
 import Darwin
+import Engine
 import Foundation
 
 // Only emit in-place progress when stdout is an interactive terminal.
@@ -9,7 +10,7 @@ let stdoutIsTTY = isatty(STDOUT_FILENO) != 0
 func updateProgress(_ current: inout String, index: Int, total: Int, path: String) {
     guard stdoutIsTTY else { return }
     // ESC[2K — erase entire line; \r — go to column 0
-    let line = "[\(index)/\(total)] \(path)"
+    let line = "[\(index)/\(total)] \(path.sanitizedForDisplay())"
     print("\u{1B}[2K\r\(line)", terminator: "")
     fflush(stdout)
     current = line

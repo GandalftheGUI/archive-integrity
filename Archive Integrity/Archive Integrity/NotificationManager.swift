@@ -9,9 +9,9 @@ actor NotificationManager {
             .requestAuthorization(options: [.alert, .sound])
     }
 
-    func postFailure(volumeID: UUID, volumeName: String, issues: [String]) async {
+    func postFailure(volumeID: UUID, volumeName: String, checkType: String, issues: [String]) async {
         let content = UNMutableNotificationContent()
-        content.title = "Archive Check Failed"
+        content.title = "\(checkType) Check Failed"
         content.subtitle = volumeName
         content.body = "\(issues.count) issue\(issues.count == 1 ? "" : "s") found"
         content.sound = .default

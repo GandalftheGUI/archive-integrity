@@ -124,8 +124,18 @@ private struct SidebarVolumeRow: View {
 struct VolumeDetailView: View {
     let volume: MonitoredVolume
     @Environment(AppState.self) var appState
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @FocusState private var nameFieldFocused: Bool
 
     private var isChecking: Bool { appState.activeChecks[volume.id] != nil }
+
+    private func renameVolume(to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let idx = appState.volumes.firstIndex(where: { $0.id == volume.id }) else { return }
+        appState.volumes[idx].displayName = trimmed
+        appState.save()
+    }
 
     private var concurrencyBinding: Binding<Int> {
         Binding(
@@ -159,6 +169,24 @@ struct VolumeDetailView: View {
             : "Next due \(next.formatted(date: .abbreviated, time: .omitted))"
     }
 
+    private var scheduledHourBinding: Binding<Int> {
+        Binding(
+            get: { appState.volumes.first(where: { $0.id == volume.id })?.effectiveScheduledHour ?? MonitoredVolume.defaultScheduledHour },
+            set: { newValue in
+                if let idx = appState.volumes.firstIndex(where: { $0.id == volume.id }) {
+                    appState.volumes[idx].scheduledHour = newValue
+                    appState.save()
+                }
+            }
+        )
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        let period = hour < 12 ? "AM" : "PM"
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+        return "\(displayHour):00 \(period)"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -175,10 +203,10 @@ struct VolumeDetailView: View {
                     }
                 }
 
-                SectionCard(title: "Check Settings", icon: "slider.horizontal.3") {
+                SectionCard(title: "Deep Check Settings", icon: "slider.horizontal.3") {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            Stepper(value: concurrencyBinding, in: 1...16) {
+                            Stepper(value: concurrencyBinding, in: 1...64) {
                                 Text("\(volume.concurrency) file\(volume.concurrency == 1 ? "" : "s") at a time")
                                     .fontWeight(.medium)
                             }
@@ -207,7 +235,22 @@ struct VolumeDetailView: View {
                             Spacer()
                         }
 
-                        Text("Runs automatically when the archive is mounted, if the interval has passed. A quick check always runs on mount.")
+                        HStack(spacing: 12) {
+                            Text("Scheduled for")
+                                .fontWeight(.medium)
+
+                            Picker("", selection: scheduledHourBinding) {
+                                ForEach(0..<24, id: \.self) { hour in
+                                    Text(hourLabel(hour)).tag(hour)
+                                }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+
+                            Spacer()
+                        }
+
+                        Text("Runs automatically when the archive is mounted, if the interval has passed, and once daily at the scheduled hour if it stays mounted. A quick check always runs on mount.")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
@@ -270,13 +313,43 @@ struct VolumeDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(volume.displayName)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                if isEditingName {
+                    TextField("Name", text: $editedName)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .textFieldStyle(.plain)
+                        .focused($nameFieldFocused)
+                        .onSubmit {
+                            renameVolume(to: editedName)
+                            isEditingName = false
+                        }
+                } else {
+                    HStack(spacing: 6) {
+                        Text(volume.displayName)
+                            .font(.title2)
+                            .fontWeight(.semibold)
+
+                        Button {
+                            editedName = volume.displayName
+                            isEditingName = true
+                            nameFieldFocused = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 StatusBadge(status: volume.overallStatus)
             }
 
             Spacer()
+        }
+        .onChange(of: nameFieldFocused) { _, focused in
+            guard isEditingName, !focused else { return }
+            renameVolume(to: editedName)
+            isEditingName = false
         }
     }
 
@@ -455,7 +528,7 @@ private struct CheckStatTile: View {
                     .fontWeight(.medium)
                     .foregroundStyle(outcomeColor(r.outcome))
 
-                Text("\(r.date.formatted(date: .abbreviated, time: .shortened)) · \(r.fileCount) files")
+                Text(statLine(for: r))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
@@ -469,6 +542,30 @@ private struct CheckStatTile: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quinary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func statLine(for record: MonitoredVolume.CheckRecord) -> String {
+        var parts = ["\(record.date.formatted(date: .abbreviated, time: .shortened))", "\(record.fileCount) files"]
+        if let durationText = durationText(record.duration) {
+            parts.append(durationText)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func durationText(_ duration: TimeInterval?) -> String? {
+        guard let duration, duration > 0 else { return nil }
+        if duration < 60 {
+            return String(format: "%.1fs", duration)
+        }
+        let totalSeconds = Int(duration.rounded())
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        if minutes < 60 {
+            return seconds > 0 ? "\(minutes)m \(seconds)s" : "\(minutes)m"
+        }
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        return remainingMinutes > 0 ? "\(hours)h \(remainingMinutes)m" : "\(hours)h"
     }
 
     private func outcomeText(_ outcome: MonitoredVolume.CheckRecord.Outcome) -> String {

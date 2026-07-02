@@ -27,15 +27,26 @@ struct MenuBarView: View {
                 }
                 .padding(.vertical, 4)
 
-                Divider().padding(.vertical, 4)
+                Divider().padding(.vertical, 2)
             }
+
+            MenuToggleRow(
+                title: "Launch at Login",
+                icon: "play.circle",
+                isOn: Binding(
+                    get: { appState.launchAtLoginEnabled },
+                    set: { appState.launchAtLoginEnabled = $0 }
+                )
+            )
+
+            Divider().padding(.vertical, 2)
 
             MenuActionRow(title: "Settings…", icon: "gearshape", shortcutHint: "⌘,", key: ",") {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
             }
 
-            Divider().padding(.vertical, 4)
+            Divider().padding(.vertical, 2)
 
             MenuActionRow(title: "Quit", icon: "power", shortcutHint: "⌘Q", key: "q") {
                 NSApp.terminate(nil)
@@ -44,6 +55,38 @@ struct MenuBarView: View {
         }
         .padding(.vertical, 4)
         .frame(minWidth: 220, idealWidth: 240)
+    }
+}
+
+private struct MenuToggleRow: View {
+    let title: String
+    let icon: String
+    @Binding var isOn: Bool
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .frame(width: 16)
+                Text(title)
+                Spacer()
+                if isOn {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isHovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { isHovering = $0 }
+        .padding(.horizontal, 6)
     }
 }
 

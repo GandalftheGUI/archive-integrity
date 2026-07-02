@@ -36,6 +36,8 @@ struct VolumeRow: View {
 
                     Spacer(minLength: 0)
                 }
+                .padding(.vertical, 5)
+                .padding(.horizontal, 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
