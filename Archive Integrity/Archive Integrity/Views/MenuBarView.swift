@@ -41,14 +41,14 @@ struct MenuBarView: View {
 
             Divider().padding(.vertical, 2)
 
-            MenuActionRow(title: "Settings…", icon: "gearshape", shortcutHint: "⌘,", key: ",") {
+            MenuActionRow(title: "Settings…", icon: "gearshape") {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
             }
 
             Divider().padding(.vertical, 2)
 
-            MenuActionRow(title: "Quit", icon: "power", shortcutHint: "⌘Q", key: "q") {
+            MenuActionRow(title: "Quit", icon: "power") {
                 NSApp.terminate(nil)
             }
             .padding(.bottom, 4)
@@ -93,9 +93,6 @@ private struct MenuToggleRow: View {
 private struct MenuActionRow: View {
     let title: String
     let icon: String
-    let shortcutHint: String
-    let key: KeyEquivalent
-    var modifiers: EventModifiers = .command
     let action: () -> Void
 
     @State private var isHovering = false
@@ -107,15 +104,12 @@ private struct MenuActionRow: View {
                     .frame(width: 16)
                 Text(title)
                 Spacer()
-                Text(shortcutHint)
-                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(key, modifiers: modifiers)
         .background(isHovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .onHover { isHovering = $0 }
         .padding(.horizontal, 6)
