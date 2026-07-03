@@ -2,7 +2,7 @@
 
 A macOS tool for detecting silent data loss on cold storage archives — bit rot, accidental deletions, and undetected corruption.
 
-<img width="1001" height="1051" alt="image" src="https://github.com/user-attachments/assets/e858ad38-c4ca-4d9f-a64c-0a814ea4eb14" />
+<img width="936" height="957" alt="image" src="https://github.com/user-attachments/assets/66e50d50-8ed3-40f7-be01-b3ca0a86c75e" />
 
 ## Install
 
