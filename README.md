@@ -6,9 +6,7 @@ A macOS tool for detecting silent data loss on cold storage archives — bit rot
 
 ## Install
 
-Download the latest `.dmg` from the [Releases page](https://github.com/GandalftheGUI/archive-integrity/releases/latest), open it, and drag **Archive Integrity** into your Applications folder. It's signed and notarized, so it launches without any Gatekeeper warnings — no need to right-click → Open or approve it in System Settings.
-
-Just want the CLI, or prefer to build from source? See [Building](#building) below.
+Download the latest `.dmg` from the [Releases page](https://github.com/GandalftheGUI/archive-integrity/releases/latest), open it, and drag **Archive Integrity** into your Applications folder.
 
 ## Why I built this
 
