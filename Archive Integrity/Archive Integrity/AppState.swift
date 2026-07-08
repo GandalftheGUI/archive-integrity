@@ -103,9 +103,8 @@ final class AppState {
             // than skipping it entirely. Each day is evaluated independently (see the "already
             // ran today" check below), so a late catch-up never shifts future days' schedule.
             guard calendar.component(.hour, from: now) >= volume.effectiveScheduledHour else { continue }
-            // Skip archives that aren't actually reachable right now (e.g. an unplugged
-            // external drive) — otherwise every file would be misreported as missing.
-            guard FileManager.default.fileExists(atPath: volume.archivePath) else { continue }
+            // (Archives that aren't actually reachable right now, e.g. an unplugged external
+            // drive, are skipped by runCheck itself before any state is touched.)
 
             // Quick and deep are gated independently — a quick check already having run today
             // (whether from this scheduler or a manual/mount-triggered check) has nothing to do
@@ -223,6 +222,19 @@ final class AppState {
     func runCheck(volumeID: UUID, mode: CheckMode) {
         guard let volume = volumes.first(where: { $0.id == volumeID }),
               activeChecks[volumeID] == nil else { return }
+        // Bail out before touching any state (in particular lastQuickAttempt/lastDeepAttempt)
+        // if the archive isn't actually reachable (e.g. an unplugged external drive). Otherwise
+        // the tree walker fails instantly, but the attempt timestamp already stamped by
+        // performCheck would still push the next scheduled deep check out by a full interval,
+        // even though nothing was actually verified.
+        guard FileManager.default.fileExists(atPath: volume.archivePath) else {
+            Task {
+                await NotificationManager.shared.postUnreachable(
+                    volumeID: volume.id, volumeName: volume.displayName,
+                    checkType: mode == .quick ? "Quick" : "Deep")
+            }
+            return
+        }
         // Run at .utility priority so the scheduler yields CPU to whatever you're actively doing
         // instead of a check competing evenly with foreground work.
         let task = Task(priority: .utility) { await performCheck(volume: volume, mode: mode) }
