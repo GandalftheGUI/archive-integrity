@@ -6,7 +6,7 @@ actor NotificationManager {
     func requestPermission() async {
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
         _ = try? await UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound])
+            .requestAuthorization(options: [.alert])
     }
 
     func postFailure(volumeID: UUID, volumeName: String, checkType: String, issues: [String]) async {
@@ -14,7 +14,6 @@ actor NotificationManager {
         content.title = volumeName
         content.subtitle = "\(checkType) Check Failed"
         content.body = "\(issues.count) issue\(issues.count == 1 ? "" : "s") found"
-        content.sound = .default
         content.userInfo = ["volumeID": volumeID.uuidString]
 
         let id = "ai.failure.\(volumeName.lowercased().filter(\.isLetter))"
@@ -30,7 +29,6 @@ actor NotificationManager {
         content.title = volumeName
         content.subtitle = "\(checkType) Check Skipped"
         content.body = "Archive not found — is the drive connected?"
-        content.sound = .default
         content.userInfo = ["volumeID": volumeID.uuidString]
 
         let id = "ai.unreachable.\(volumeName.lowercased().filter(\.isLetter))"
