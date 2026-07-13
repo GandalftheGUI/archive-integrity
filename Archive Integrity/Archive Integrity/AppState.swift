@@ -118,10 +118,10 @@ final class AppState {
                 calendar.isDate($0, inSameDayAs: now)
             } ?? false
             if !quickAlreadyRanToday {
-                runCheck(volumeID: volume.id, mode: .quick)
+                runCheck(volumeID: volume.id, mode: .quick, throttleUnreachableRetries: true)
             }
             if shouldAutoDeepCheck(volume) {
-                runCheck(volumeID: volume.id, mode: .deep)
+                runCheck(volumeID: volume.id, mode: .deep, throttleUnreachableRetries: true)
             }
         }
     }
@@ -219,15 +219,29 @@ final class AppState {
 
     // MARK: - Running checks
 
-    func runCheck(volumeID: UUID, mode: CheckMode) {
+    /// throttleUnreachableRetries: when true (the background scheduler's calls), a repeat
+    /// unreachable volume is retried/notified about at most once every 24 hours instead of
+    /// every 15-minute scheduler tick. Manual and mount-triggered calls leave this false, since
+    /// those represent an explicit, one-off request that should always run (or, for mount, only
+    /// fire once the drive is actually back — so there's nothing to throttle there anyway).
+    func runCheck(volumeID: UUID, mode: CheckMode, throttleUnreachableRetries: Bool = false) {
         guard let volume = volumes.first(where: { $0.id == volumeID }),
               activeChecks[volumeID] == nil else { return }
-        // Bail out before touching any state (in particular lastQuickAttempt/lastDeepAttempt)
-        // if the archive isn't actually reachable (e.g. an unplugged external drive). Otherwise
-        // the tree walker fails instantly, but the attempt timestamp already stamped by
-        // performCheck would still push the next scheduled deep check out by a full interval,
-        // even though nothing was actually verified.
+        // Bail out before touching lastQuickAttempt/lastDeepAttempt if the archive isn't
+        // actually reachable (e.g. an unplugged external drive). Otherwise the tree walker
+        // fails instantly, but the attempt timestamp already stamped by performCheck would
+        // still push the next scheduled deep check out by a full interval, even though nothing
+        // was actually verified.
         guard FileManager.default.fileExists(atPath: volume.archivePath) else {
+            if throttleUnreachableRetries,
+               let last = volume.lastUnreachableNotification,
+               Date().timeIntervalSince(last) < 24 * 60 * 60 {
+                return
+            }
+            if let idx = volumes.firstIndex(where: { $0.id == volumeID }) {
+                volumes[idx].lastUnreachableNotification = Date()
+                save()
+            }
             Task {
                 await NotificationManager.shared.postUnreachable(
                     volumeID: volume.id, volumeName: volume.displayName,

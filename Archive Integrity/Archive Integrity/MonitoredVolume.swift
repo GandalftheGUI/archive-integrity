@@ -30,6 +30,14 @@ struct MonitoredVolume: Identifiable, Codable, Sendable {
     var lastQuickAttempt: Date?
     var lastDeepAttempt: Date?
 
+    /// When the scheduler last found this volume unreachable (e.g. an unplugged drive) and
+    /// notified about it. Deliberately separate from lastQuickAttempt/lastDeepAttempt — those
+    /// feed the deep-check due-date math, but an unreachable check never actually attempted
+    /// anything, so it must not affect that schedule. This field exists purely to throttle
+    /// how often the background scheduler retries (and re-notifies) while a drive stays
+    /// disconnected, independent of that.
+    var lastUnreachableNotification: Date?
+
     struct CheckRecord: Codable, Sendable {
         var date: Date
         var outcome: Outcome
